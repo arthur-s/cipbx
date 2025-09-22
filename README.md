@@ -19,6 +19,9 @@ cipbx --listen 127.0.0.1 --port 5090
 # Using short flags
 cipbx -l 127.0.0.1 -p 5090
 
+# Specify transport (defaults to udp). Supported: udp, tcp, tls, ws, wss
+cipbx --transport udp -l 127.0.0.1 -p 5090
+
 # With authentication (accepts REGISTER requests)
 cipbx -l 127.0.0.1 -p 5090 -u username -w password
 
@@ -33,6 +36,7 @@ cipbx -l 127.0.0.1 -p 5090 -t 30
 - **Call Bridging**: Call any other extension to bridge calls (e.g., `alice@<server-ip>`)
 - **Authentication**: Optional digest authentication for REGISTER requests with 1-hour expiration
 - **Call Timeout**: Optional automatic call termination after specified duration (in seconds)
+- **Transport Selection**: Choose between `udp`, `tcp`, `tls`, `ws`, `wss` (default `udp`)
 
 ### Call Routing
 

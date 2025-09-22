@@ -23,6 +23,7 @@ var (
 	username   string
 	password   string
 	timeout    int
+	transport  string
 )
 
 func main() {
@@ -46,6 +47,7 @@ func main() {
 	rootCmd.Flags().StringVarP(&username, "username", "u", "", "Username for authentication (optional)")
 	rootCmd.Flags().StringVarP(&password, "password", "w", "", "Password for authentication (optional)")
 	rootCmd.Flags().IntVarP(&timeout, "timeout", "t", 0, "Call timeout in seconds (0 = no timeout)")
+	rootCmd.Flags().StringVar(&transport, "transport", "udp", "Transport protocol (udp|tcp|tls|ws|wss)")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -74,7 +76,7 @@ func startServer() error {
 	defer ua.Close()
 
 	tran := diago.Transport{
-		Transport: "udp",
+		Transport: transport,
 		BindHost:  listenAddr,
 		BindPort:  port,
 	}
