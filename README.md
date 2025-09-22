@@ -21,6 +21,9 @@ cipbx -l 127.0.0.1 -p 5090
 
 # With authentication (accepts REGISTER requests)
 cipbx -l 127.0.0.1 -p 5090 -u username -w password
+
+# With timeout (automatically hang up after 30 seconds)
+cipbx -l 127.0.0.1 -p 5090 -t 30
 ```
 
 ### Features
@@ -29,6 +32,7 @@ cipbx -l 127.0.0.1 -p 5090 -u username -w password
 - **Playback Server**: Call `playback@<server-ip>` for demo playback functionality
 - **Call Bridging**: Call any other extension to bridge calls (e.g., `alice@<server-ip>`)
 - **Authentication**: Optional digest authentication for REGISTER requests with 1-hour expiration
+- **Call Timeout**: Optional automatic call termination after specified duration (in seconds)
 
 ### Call Routing
 
@@ -51,6 +55,22 @@ cipbx -l 127.0.0.1 -p 5090 -u testuser -w testpass
 # Client can now register with:
 # REGISTER sip:127.0.0.1:5090 SIP/2.0
 # Authorization: Digest username="testuser", realm="cipbx", ...
+```
+
+### Call Timeout
+
+The timeout feature allows you to specify a maximum call duration in seconds. When enabled:
+- Calls will be automatically terminated after the specified duration
+- The server sends a BYE message to properly close the call
+- Useful for testing scenarios where calls should not run indefinitely
+
+Example with timeout:
+```bash
+# Set 60-second timeout
+cipbx -l 127.0.0.1 -p 5090 -t 60
+
+# Combine with authentication
+cipbx -l 127.0.0.1 -p 5090 -u testuser -w testpass -t 120
 ```
 
 
