@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strconv"
 	"time"
 
 	"github.com/emiago/diago"
@@ -25,41 +24,6 @@ var (
 	password   string
 	timeout    int
 )
-
-// Simple in-memory registrar
-type registrationEntry struct {
-	Contact sip.Uri
-	Expire  time.Time
-}
-
-var registrar = struct {
-	entries map[string]*registrationEntry
-}{entries: map[string]*registrationEntry{}}
-
-func registrarSet(aor string, contact sip.Uri, ttlSeconds int) {
-	if ttlSeconds <= 0 {
-		delete(registrar.entries, aor)
-		slog.Info("Unregistered user", "aor", aor)
-		return
-	}
-	registrar.entries[aor] = &registrationEntry{
-		Contact: *contact.Clone(),
-		Expire:  time.Now().Add(time.Duration(ttlSeconds) * time.Second),
-	}
-	slog.Info("Registered user", "aor", aor, "contact", contact.String(), "expires_in", ttlSeconds)
-}
-
-func registrarGet(aor string) (sip.Uri, bool) {
-	e, ok := registrar.entries[aor]
-	if !ok {
-		return sip.Uri{}, false
-	}
-	if time.Now().After(e.Expire) {
-		delete(registrar.entries, aor)
-		return sip.Uri{}, false
-	}
-	return *e.Contact.Clone(), true
-}
 
 func main() {
 	SetupLogger()
@@ -119,9 +83,8 @@ func startServer() error {
 	srv, _ := sipgo.NewServer(ua)
 	tu := diago.NewDiago(ua, diago.WithServer(srv), diago.WithTransport(tran))
 
-	// Setup authentication if credentials are provided
+	// Setup REGISTER handler if credentials are provided
 	if username != "" && password != "" {
-		// Set up REGISTER request handler using the underlying sipgo server
 		setupRegisterHandler(srv, username, password)
 	}
 
@@ -131,87 +94,6 @@ func startServer() error {
 		if err := HandleCall(tu, inDialog); err != nil {
 			slog.Error("Call handling finished with error", "error", err)
 		}
-	})
-}
-
-func setupRegisterHandler(srv *sipgo.Server, user, pass string) {
-	slog.Info("REGISTER authentication enabled", "username", user)
-
-	authServer := diago.NewDigestServer()
-	// Closed implicitly at process end; no hook here since srv lifetime == process
-
-	srv.OnRegister(func(req *sip.Request, tx sip.ServerTransaction) {
-		// 1) Challenge/verify digest
-		res, err := authServer.AuthorizeRequest(req, diago.DigestAuth{
-			Username: user,
-			Password: pass,
-			Realm:    "cipbx",
-			Expire:   30 * time.Second,
-		})
-		if err != nil || res.StatusCode != sip.StatusOK {
-			if err != nil {
-				slog.Info("REGISTER auth challenge", "error", err)
-			}
-			if tx != nil {
-				tx.Respond(res)
-			}
-			return
-		}
-
-		// 2) Parse contact(s) and expiry
-		to := req.To()
-		aorUser := ""
-		if to != nil {
-			aorUser = to.Address.User
-		}
-		if aorUser == "" {
-			tx.Respond(sip.NewResponseFromRequest(req, sip.StatusBadRequest, "Bad Request", nil))
-			return
-		}
-
-		// Determine requested expiry
-		expiresSeconds := 3600
-		if h := req.GetHeader("Expires"); h != nil {
-			if v, err := strconv.Atoi(h.Value()); err == nil {
-				expiresSeconds = v
-			}
-		}
-
-		contact := req.Contact()
-		if contact == nil {
-			// No Contact: treat as error
-			tx.Respond(sip.NewResponseFromRequest(req, sip.StatusBadRequest, "Missing Contact", nil))
-			return
-		}
-
-		if p := contact.Params; p != nil {
-			if v, ok := p.Get("expires"); ok && v != "" {
-				if n, err := strconv.Atoi(v); err == nil {
-					expiresSeconds = n
-				}
-			}
-		}
-
-		// Unregister if Contact: * and Expires 0
-		if contact.Address.Wildcard || expiresSeconds == 0 {
-			registrarSet(aorUser, sip.Uri{}, 0)
-		} else {
-			// NAT assist: prefer request source for host:port
-			host, port, err := sip.ParseAddr(req.Source())
-			stored := *contact.Address.Clone()
-			if err == nil {
-				stored.Host = host
-				stored.Port = port
-			}
-			// Store registration
-			registrarSet(aorUser, stored, expiresSeconds)
-		}
-
-		// 3) Respond 200 OK with echoed Contact and Expires
-		ok := sip.NewResponseFromRequest(req, sip.StatusOK, "OK", nil)
-		ok.AppendHeader(contact.Clone())
-		ok.AppendHeader(sip.NewHeader("Expires", strconv.Itoa(expiresSeconds)))
-		tx.Respond(ok)
 	})
 }
 
