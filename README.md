@@ -13,14 +13,45 @@
 ## Usage
 
 ```bash
-# Basic usage
+# Basic usage (echo server only)
 cipbx --listen 127.0.0.1 --port 5090
 
 # Using short flags
 cipbx -l 127.0.0.1 -p 5090
+
+# With authentication (accepts REGISTER requests)
+cipbx -l 127.0.0.1 -p 5090 -u username -w password
 ```
-This command will run PBX server, then you may call to any number on that, e.g `echo@127.0.0.1`. 
-Later there will be added more options to control call, e.g. hangup by PBX after timeout.
+
+### Features
+
+- **Echo Server**: Call `echo@<server-ip>` to test echo functionality
+- **Playback Server**: Call `playback@<server-ip>` for demo playback functionality
+- **Call Bridging**: Call any other extension to bridge calls (e.g., `alice@<server-ip>`)
+- **Authentication**: Optional digest authentication for REGISTER requests with 1-hour expiration
+
+### Call Routing
+
+- **echo@domain**: Routes to echo server for testing media transmission
+- **playback@domain**: Routes to playback server (demo functionality)
+- **user@domain**: Bridges calls to the specified user (requires proper SIP routing)
+
+### Authentication
+
+When username and password are provided:
+- Accepts authenticated REGISTER requests
+- Sets registration expiration to 1 hour
+- Logs successful registrations
+
+Example with authentication:
+```bash
+# Enable authentication
+cipbx -l 127.0.0.1 -p 5090 -u testuser -w testpass
+
+# Client can now register with:
+# REGISTER sip:127.0.0.1:5090 SIP/2.0
+# Authorization: Digest username="testuser", realm="cipbx", ...
+```
 
 
 # RTP tester
