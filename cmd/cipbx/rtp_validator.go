@@ -20,11 +20,13 @@ type RTPValidator struct {
 	validCount  int
 	startTime   time.Time
 	windowStart time.Time
-	codec       string
+	codec       media.Codec
+	lastByte    uint8
+	debugCount  int
 }
 
 // NewRTPValidator creates a new RTP validator
-func NewRTPValidator(reader io.Reader, expectByte uint8, codec string) *RTPValidator {
+func NewRTPValidator(reader io.Reader, expectByte uint8, codec media.Codec) *RTPValidator {
 	return &RTPValidator{
 		reader:     reader,
 		expectByte: expectByte,
@@ -58,13 +60,27 @@ func (v *RTPValidator) Read(p []byte) (int, error) {
 		v.windowStart = time.Now()
 	}
 
-	// Check if all bytes in payload match expected byte
+	if n > 0 {
+		v.lastByte = p[n-1]
+	}
+
 	allMatch := true
 	for _, b := range p[:n] {
 		if b != v.expectByte {
 			allMatch = false
 			break
 		}
+	}
+
+	// Debug logging every 25th packet (approximately every 0.5 second)
+	v.debugCount++
+	if v.debugCount%25 == 0 {
+		slog.Debug("RTP validation debug",
+			"packet", v.packetCount,
+			"codec", v.codec.Name,
+			"expected", fmt.Sprintf("0x%02X", v.expectByte),
+			"last_raw", fmt.Sprintf("0x%02X", v.lastByte),
+			"match", allMatch)
 	}
 
 	if allMatch {
@@ -80,18 +96,20 @@ func (v *RTPValidator) Read(p []byte) (int, error) {
 		if v.validCount == packetsInWindow && packetsInWindow >= 50 {
 			// All packets in window were valid
 			slog.Info("RTP_ASSERT_OK",
-				"codec", v.codec,
+				"codec", v.codec.Name,
 				"bytes", fmt.Sprintf("0x%02X", v.expectByte),
 				"packets", packetsInWindow,
-				"duration", windowDuration)
+				"duration", windowDuration,
+				"last_raw", fmt.Sprintf("0x%02X", v.lastByte))
 		} else {
 			// Some packets were invalid
 			slog.Error("RTP_ASSERT_FAIL",
-				"codec", v.codec,
+				"codec", v.codec.Name,
 				"expected", fmt.Sprintf("0x%02X", v.expectByte),
 				"valid_packets", v.validCount,
 				"total_packets", packetsInWindow,
-				"duration", windowDuration)
+				"duration", windowDuration,
+				"last_raw", fmt.Sprintf("0x%02X", v.lastByte))
 		}
 
 		// Reset for next window (if any)
@@ -131,11 +149,9 @@ func AnswerWithEchoWithValidation(inDialog *diago.DialogServerSession, timeoutCt
 	}
 
 	// Determine codec for logging
-	codec := "unknown"
+	codec := media.Codec{Name: "unknown"}
 	if mediaSession := inDialog.Media().MediaSession(); mediaSession != nil {
-		if codecs := mediaSession.CommonCodecs(); len(codecs) > 0 {
-			codec = codecs[0].Name
-		}
+		codec = media.CodecAudioFromSession(mediaSession)
 	}
 
 	// Wrap audio reader with validator if expectByte is specified
