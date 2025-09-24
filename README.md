@@ -28,8 +28,8 @@ cipbx -l 127.0.0.1 -p 5090 -u username -w password
 # With timeout (automatically hang up after 30 seconds)
 cipbx -l 127.0.0.1 -p 5090 -t 30
 
-# With RTP payload validation (expect 0x55 in all payload bytes)
-cipbx -l 127.0.0.1 -p 5090 --expect 0x55
+# With RTP payload validation (expect 0x30 in all payload bytes. Note: validate encoded value, not decoded)
+cipbx -l 127.0.0.1 -p 5090 --expect 0x30
 ```
 
 ### Features
