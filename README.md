@@ -27,6 +27,9 @@ cipbx -l 127.0.0.1 -p 5090 -u username -w password
 
 # With timeout (automatically hang up after 30 seconds)
 cipbx -l 127.0.0.1 -p 5090 -t 30
+
+# With RTP payload validation (expect 0x30 in all payload bytes. Note: validate encoded value, not decoded)
+cipbx -l 127.0.0.1 -p 5090 --expect 0x30
 ```
 
 ### Features
@@ -37,6 +40,7 @@ cipbx -l 127.0.0.1 -p 5090 -t 30
 - **Authentication**: Optional digest authentication for REGISTER requests with 1-hour expiration
 - **Call Timeout**: Optional automatic call termination after specified duration (in seconds)
 - **Transport Selection**: Choose between `udp`, `tcp`, `tls`, `ws`, `wss` (default `udp`)
+- **RTP Payload Validation**: Optional validation of RTP payload bytes for testing purposes
 
 ### Call Routing
 
@@ -76,6 +80,28 @@ cipbx -l 127.0.0.1 -p 5090 -t 60
 # Combine with authentication
 cipbx -l 127.0.0.1 -p 5090 -u testuser -w testpass -t 120
 ```
+
+### RTP Payload Validation
+
+The `--expect` flag enables RTP payload validation for testing purposes. When specified, the server will:
+
+- Ignore the first 15 RTP packets (startup/comfort noise)
+- Validate a window of payloads (≥50 packets over 3 seconds)
+- Check that every payload byte matches the expected value
+- Log validation results with `RTP_ASSERT_OK` or `RTP_ASSERT_FAIL`
+
+Example usage:
+```bash
+# Expect 0x55 in all RTP payload bytes
+cipbx -l 127.0.0.1 -p 5090 --expect 0x55
+
+# Combine with other options
+cipbx -l 127.0.0.1 -p 5090 -u testuser -w testpass --expect 0x55 -t 60
+```
+
+The validation is only active for `echo@domain` calls and logs results like:
+- `RTP_ASSERT_OK codec=PCMU bytes=0x55` (success)
+- `RTP_ASSERT_FAIL codec=PCMU expected=0x55 valid_packets=45 total_packets=50` (failure)
 
 
 # RTP tester

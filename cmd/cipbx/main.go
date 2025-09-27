@@ -24,6 +24,7 @@ var (
 	password   string
 	timeout    int
 	transport  string
+	expectByte uint8
 )
 
 func main() {
@@ -48,6 +49,7 @@ func main() {
 	rootCmd.Flags().StringVarP(&password, "password", "w", "", "Password for authentication (optional)")
 	rootCmd.Flags().IntVarP(&timeout, "timeout", "t", 0, "Call timeout in seconds (0 = no timeout)")
 	rootCmd.Flags().StringVar(&transport, "transport", "udp", "Transport protocol (udp|tcp|tls|ws|wss)")
+	rootCmd.Flags().Uint8Var(&expectByte, "expect", 0, "Expected byte value in RTP payload for validation (0 = disabled)")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -129,6 +131,9 @@ func HandleCall(tu *diago.Diago, inDialog *diago.DialogServerSession) error {
 	// Route based on callee
 	switch callee {
 	case "echo":
+		if expectByte != 0 {
+			return AnswerWithEchoWithValidation(inDialog, timeoutCtx, expectByte)
+		}
 		return AnswerWithEcho(inDialog, timeoutCtx)
 	case "playback":
 		return AnswerWithPlayback(inDialog, timeoutCtx)
