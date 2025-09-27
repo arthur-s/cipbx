@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/signal"
 	"time"
 
+	"github.com/arthur-s/cipbx/pkg/scenarios"
 	"github.com/emiago/diago"
 	"github.com/emiago/diago/media"
 	"github.com/emiago/sipgo"
@@ -132,135 +131,12 @@ func HandleCall(tu *diago.Diago, inDialog *diago.DialogServerSession) error {
 	switch callee {
 	case "echo":
 		if expectByte != 0 {
-			return AnswerWithEchoWithValidation(inDialog, timeoutCtx, expectByte)
+			return scenarios.AnswerWithEchoWithValidation(inDialog, timeoutCtx, expectByte)
 		}
-		return AnswerWithEcho(inDialog, timeoutCtx)
+		return scenarios.AnswerWithEcho(inDialog, timeoutCtx)
 	case "playback":
-		return AnswerWithPlayback(inDialog, timeoutCtx)
+		return scenarios.AnswerWithPlayback(inDialog, timeoutCtx)
 	default:
-		return BridgeCall(tu, inDialog, callee, timeoutCtx)
+		return scenarios.BridgeCall(tu, inDialog, callee, timeoutCtx, registrarGet)
 	}
-}
-
-func BridgeCall(dg *diago.Diago, inDialog *diago.DialogServerSession, callee string, timeoutCtx context.Context) error {
-	inDialog.Trying()  // 100 Trying
-	inDialog.Ringing() // 180 Ringing
-
-	// Resolve the recipient URI (prefer registrar entry)
-	var recipient sip.Uri
-	if reg, ok := registrarGet(callee); ok {
-		recipient = reg
-	} else {
-		recipient = sip.Uri{
-			User: callee,
-			Host: inDialog.InviteRequest.To().Address.Host,
-			Port: 5060,
-		}
-	}
-
-	// Prepare bridge
-	bridge := diago.NewBridge()
-
-	// Place the outbound leg first
-	ctx, cancel := context.WithTimeout(inDialog.Context(), 30*time.Second)
-	defer cancel()
-
-	outDialog, err := dg.InviteBridge(ctx, recipient, &bridge, diago.InviteOptions{})
-	if err != nil {
-		// Callee not reachable; reject inbound appropriately
-		_ = inDialog.Respond(sip.StatusTemporarilyUnavailable, "Temporarily Unavailable", nil)
-		return fmt.Errorf("failed to create bridged call: %w", err)
-	}
-	defer outDialog.Close()
-
-	// Now answer the inbound leg and add it to the bridge
-	if err := inDialog.Answer(); err != nil {
-		return err
-	}
-	if err := bridge.AddDialogSession(inDialog); err != nil {
-		return fmt.Errorf("failed to add incoming dialog to bridge: %w", err)
-	}
-
-	slog.Info("Call bridged", "from", inDialog.ID, "to", outDialog.ID, "callee", callee)
-
-	// Handle optional timeout safely
-	var timeoutDone <-chan struct{}
-	if timeoutCtx != nil {
-		timeoutDone = timeoutCtx.Done()
-	}
-
-	// Wait for either side to hang up or timeout
-	select {
-	case <-timeoutDone:
-		slog.Info("Bridge call timeout reached", "callee", callee)
-		return nil
-	case <-inDialog.Context().Done():
-		slog.Info("Incoming call hung up", "callee", callee)
-	case <-outDialog.Context().Done():
-		slog.Info("Outgoing call hung up", "callee", callee)
-	}
-
-	return nil
-}
-
-func AnswerWithEcho(inDialog *diago.DialogServerSession, timeoutCtx context.Context) error {
-	inDialog.Trying()  // Progress -> 100 Trying
-	inDialog.Ringing() // Ringing -> 180 Response
-	if err := inDialog.Answer(); err != nil {
-		return err
-	} // Answer -> 200 Response
-
-	// Handle timeout for echo calls
-	if timeoutCtx != nil {
-		select {
-		case <-timeoutCtx.Done():
-			slog.Info("Echo call timeout reached")
-			return nil
-		default:
-		}
-	}
-
-	err := inDialog.Echo()
-	if errors.Is(err, io.EOF) {
-		// Call finished
-		return nil
-	}
-	return err
-}
-
-func AnswerWithPlayback(inDialog *diago.DialogServerSession, timeoutCtx context.Context) error {
-	inDialog.Trying()  // Progress -> 100 Trying
-	inDialog.Ringing() // Ringing -> 180 Response
-	if err := inDialog.Answer(); err != nil {
-		return err
-	} // Answer -> 200 Response
-
-	// Handle timeout for playback calls
-	if timeoutCtx != nil {
-		select {
-		case <-timeoutCtx.Done():
-			slog.Info("Playback call timeout reached")
-			return nil
-		default:
-		}
-	}
-
-	// Create playback instance
-	pb, err := inDialog.PlaybackCreate()
-	if err != nil {
-		slog.Error("Failed to create playback", "error", err)
-		return err
-	}
-
-	// Open the playback file
-	playfile, err := os.Open("demo-echodone.wav")
-	if err != nil {
-		slog.Error("Failed to open playback file", "error", err)
-		return err
-	}
-	defer playfile.Close()
-
-	slog.Info("Playing a file", "file", "demo-echodone.wav")
-	_, err = pb.Play(playfile, "audio/wav")
-	return err
 }
