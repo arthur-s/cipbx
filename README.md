@@ -25,6 +25,9 @@ cipbx --transport udp -l 127.0.0.1 -p 5090
 # With authentication (accepts REGISTER requests)
 cipbx -l 127.0.0.1 -p 5090 -u username -w password
 
+# Multiple accounts (comma separated lists)
+cipbx -l 127.0.0.1 -p 5090 -u alice,bob -w secret1,secret2
+
 # With timeout (automatically hang up after 30 seconds)
 cipbx -l 127.0.0.1 -p 5090 -t 30
 
@@ -37,7 +40,7 @@ cipbx -l 127.0.0.1 -p 5090 --expect 0x30
 - **Echo Server**: Call `echo@<server-ip>` to test echo functionality
 - **Playback Server**: Call `playback@<server-ip>` for demo playback functionality
 - **Call Bridging**: Call any other extension to bridge calls (e.g., `alice@<server-ip>`)
-- **Authentication**: Optional digest authentication for REGISTER requests with 1-hour expiration
+- **Authentication**: Optional digest authentication for REGISTER requests (supports multiple accounts) with 1-hour expiration
 - **Call Timeout**: Optional automatic call termination after specified duration (in seconds)
 - **Transport Selection**: Choose between `udp`, `tcp`, `tls`, `ws`, `wss` (default `udp`)
 - **RTP Payload Validation**: Optional validation of RTP payload bytes for testing purposes
@@ -52,13 +55,17 @@ cipbx -l 127.0.0.1 -p 5090 --expect 0x30
 
 When username and password are provided:
 - Accepts authenticated REGISTER requests
+- Supports specifying multiple accounts using comma-separated lists (e.g. `-u alice,bob -w secret1,secret2`)
 - Sets registration expiration to 1 hour
 - Logs successful registrations
 
 Example with authentication:
 ```bash
-# Enable authentication
+# Enable authentication for single account
 cipbx -l 127.0.0.1 -p 5090 -u testuser -w testpass
+
+# Enable authentication for multiple accounts
+cipbx -l 127.0.0.1 -p 5090 -u alice,bob -w secret1,secret2
 
 # Client can now register with:
 # REGISTER sip:127.0.0.1:5090 SIP/2.0

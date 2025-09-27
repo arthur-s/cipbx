@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/arthur-s/cipbx/pkg/scenarios"
@@ -25,6 +27,11 @@ var (
 	transport  string
 	expectByte uint8
 )
+
+type authCredential struct {
+	Username string
+	Password string
+}
 
 func main() {
 	SetupLogger()
@@ -87,8 +94,12 @@ func startServer() error {
 	tu := diago.NewDiago(ua, diago.WithServer(srv), diago.WithTransport(tran))
 
 	// Setup REGISTER handler if credentials are provided
-	if username != "" && password != "" {
-		setupRegisterHandler(srv, username, password)
+	if username != "" || password != "" {
+		authCreds, realm, err := prepareAuthCredentials(username, password, listenAddr)
+		if err != nil {
+			return err
+		}
+		setupRegisterHandler(srv, realm, authCreds)
 	}
 
 	return tu.Serve(ctx, func(inDialog *diago.DialogServerSession) {
@@ -98,6 +109,56 @@ func startServer() error {
 			slog.Error("Call handling finished with error", "error", err)
 		}
 	})
+}
+
+func prepareAuthCredentials(userCSV, passCSV, fallbackRealm string) ([]authCredential, string, error) {
+	if userCSV == "" || passCSV == "" {
+		return nil, "", errors.New("both username and password must be provided")
+	}
+
+	users := splitAndTrim(userCSV)
+	passwords := splitAndTrim(passCSV)
+	if len(users) != len(passwords) {
+		return nil, "", fmt.Errorf("username/password count mismatch: %d vs %d", len(users), len(passwords))
+	}
+	if len(users) == 0 {
+		return nil, "", errors.New("no usernames provided")
+	}
+
+	creds := make([]authCredential, len(users))
+	for i := range users {
+		if users[i] == "" {
+			return nil, "", fmt.Errorf("username at position %d is empty", i+1)
+		}
+		if passwords[i] == "" {
+			return nil, "", fmt.Errorf("password for user %q is empty", users[i])
+		}
+		creds[i] = authCredential{Username: users[i], Password: passwords[i]}
+	}
+
+	realm := deriveRealm(creds, fallbackRealm)
+	return creds, realm, nil
+}
+
+func splitAndTrim(csv string) []string {
+	parts := strings.Split(csv, ",")
+	res := make([]string, len(parts))
+	for i, p := range parts {
+		res[i] = strings.TrimSpace(p)
+	}
+	return res
+}
+
+func deriveRealm(creds []authCredential, fallback string) string {
+	for _, cred := range creds {
+		if at := strings.LastIndex(cred.Username, "@"); at > 0 && at < len(cred.Username)-1 {
+			domain := cred.Username[at+1:]
+			if domain != "" {
+				return domain
+			}
+		}
+	}
+	return fallback
 }
 
 func HandleCall(tu *diago.Diago, inDialog *diago.DialogServerSession) error {

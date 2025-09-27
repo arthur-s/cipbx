@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"time"
@@ -8,22 +10,33 @@ import (
 	"github.com/emiago/diago"
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
+	"github.com/icholy/digest"
 )
 
-func setupRegisterHandler(srv *sipgo.Server, user, pass string) {
-	slog.Info("REGISTER authentication enabled", "username", user)
+func setupRegisterHandler(srv *sipgo.Server, realm string, creds []authCredential) {
+	slog.Info("REGISTER authentication enabled", "accounts", len(creds), "realm", realm)
 
 	authServer := diago.NewDigestServer()
 	// Closed at process end; lifetime matches server
+	credentialMap := make(map[string]string, len(creds))
+	for _, c := range creds {
+		credentialMap[c.Username] = c.Password
+	}
 
 	srv.OnRegister(func(req *sip.Request, tx sip.ServerTransaction) {
 		// 1) Challenge/verify digest
-		res, err := authServer.AuthorizeRequest(req, diago.DigestAuth{
-			Username: user,
-			Password: pass,
-			Realm:    "cipbx",
-			Expire:   30 * time.Second,
-		})
+		digestSpec, rejectRes, err := buildDigestSpec(req, realm, credentialMap)
+		if err != nil {
+			slog.Info("REGISTER auth preprocessing", "error", err)
+		}
+		if rejectRes != nil {
+			if tx != nil {
+				tx.Respond(rejectRes)
+			}
+			return
+		}
+
+		res, err := authServer.AuthorizeRequest(req, *digestSpec)
 		if err != nil || res.StatusCode != sip.StatusOK {
 			if err != nil {
 				slog.Info("REGISTER auth challenge", "error", err)
@@ -86,4 +99,34 @@ func setupRegisterHandler(srv *sipgo.Server, user, pass string) {
 		ok.AppendHeader(sip.NewHeader("Expires", strconv.Itoa(expiresSeconds)))
 		tx.Respond(ok)
 	})
+}
+
+func buildDigestSpec(req *sip.Request, realm string, credentials map[string]string) (*diago.DigestAuth, *sip.Response, error) {
+	challenge := diago.DigestAuth{Realm: realm, Expire: 30 * time.Second}
+
+	authHeader := req.GetHeader("Authorization")
+	if authHeader == nil {
+		return &challenge, nil, nil
+	}
+
+	cred, err := digest.ParseCredentials(authHeader.Value())
+	if err != nil {
+		return nil, sip.NewResponseFromRequest(req, sip.StatusBadRequest, "Bad Authorization", nil), fmt.Errorf("parse credentials: %w", err)
+	}
+
+	pass, ok := credentials[cred.Username]
+	if !ok {
+		chal := digest.Challenge{
+			Realm:     realm,
+			Nonce:     fmt.Sprintf("%x", sip.GenerateTagN(32)),
+			Algorithm: "MD5",
+		}
+		res := sip.NewResponseFromRequest(req, sip.StatusUnauthorized, "Unknown User", nil)
+		res.AppendHeader(sip.NewHeader("WWW-Authenticate", chal.String()))
+		return nil, res, errors.New("unknown username")
+	}
+
+	challenge.Username = cred.Username
+	challenge.Password = pass
+	return &challenge, nil, nil
 }
